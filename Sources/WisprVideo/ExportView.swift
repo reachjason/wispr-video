@@ -5,6 +5,7 @@ struct ExportItem: Identifiable {
     let id = UUID()
     let label: String
     let ratio: String
+    let platforms: String
     let dimensions: String
     var url: URL?
     var thumbnail: NSImage?
@@ -102,10 +103,10 @@ private struct ChooseFormatsView: View {
         )
         return Toggle(isOn: isOn) {
             HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("\(spec.label) · \(spec.ratio)")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(spec.platforms)
                         .font(.body).bold()
-                    Text("\(spec.width) × \(spec.height)")
+                    Text("\(spec.label) · \(spec.ratio) · \(spec.width) × \(spec.height)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -196,9 +197,9 @@ private struct ResultsView: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("\(item.label) · \(item.ratio)")
+                    Text(item.platforms)
                         .font(.subheadline).bold()
-                    Text(item.dimensions)
+                    Text("\(item.label) · \(item.ratio) · \(item.dimensions)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

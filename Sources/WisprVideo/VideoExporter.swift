@@ -5,6 +5,7 @@ import AppKit
 struct ExportSpec: Sendable {
     let label: String
     let ratio: String
+    let platforms: String
     let fileName: String
     let width: Int
     let height: Int
@@ -12,10 +13,14 @@ struct ExportSpec: Sendable {
 
 enum VideoExporter {
     static let specs: [ExportSpec] = [
-        ExportSpec(label: "Vertical",  ratio: "9:16", fileName: "vertical-9x16",  width: 1080, height: 1920),
-        ExportSpec(label: "Portrait",  ratio: "4:5",  fileName: "portrait-4x5",   width: 1080, height: 1350),
-        ExportSpec(label: "Square",    ratio: "1:1",  fileName: "square-1x1",     width: 1080, height: 1080),
-        ExportSpec(label: "Landscape", ratio: "16:9", fileName: "landscape-16x9", width: 1920, height: 1080),
+        ExportSpec(label: "Vertical",  ratio: "9:16", platforms: "Reels · TikTok · Shorts",
+                   fileName: "vertical-9x16-reels-tiktok-shorts",  width: 1080, height: 1920),
+        ExportSpec(label: "Portrait",  ratio: "4:5",  platforms: "Instagram feed",
+                   fileName: "portrait-4x5-instagram-feed",        width: 1080, height: 1350),
+        ExportSpec(label: "Square",    ratio: "1:1",  platforms: "Instagram · Facebook",
+                   fileName: "square-1x1-instagram-facebook",      width: 1080, height: 1080),
+        ExportSpec(label: "Landscape", ratio: "16:9", platforms: "YouTube · X · LinkedIn",
+                   fileName: "landscape-16x9-youtube-x-linkedin",  width: 1920, height: 1080),
     ]
 
     /// Renders `source` into `spec`'s size using a center-crop-to-fill transform.

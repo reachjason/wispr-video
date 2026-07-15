@@ -159,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func runExport(specs: [ExportSpec], source: URL, model: ExportModel) {
         model.items = specs.map {
-            ExportItem(label: $0.label, ratio: $0.ratio,
+            ExportItem(label: $0.label, ratio: $0.ratio, platforms: $0.platforms,
                        dimensions: "\($0.width) × \($0.height)")
         }
 
