@@ -28,8 +28,18 @@ swiftc \
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
-echo "▶ Signing (ad-hoc)…"
-codesign --force --sign - \
+# Prefer the stable local identity (created by tools/make-signing-cert.sh) so
+# macOS keeps granted permissions across rebuilds; fall back to ad-hoc.
+IDENTITY="Wispr Video Dev"
+if security find-identity -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
+    security unlock-keychain -p wisprdev wispr-signing.keychain 2>/dev/null || true
+    echo "▶ Signing with '$IDENTITY'…"
+    SIGN_ID="$IDENTITY"
+else
+    echo "▶ Signing (ad-hoc — run tools/make-signing-cert.sh so permissions persist)…"
+    SIGN_ID="-"
+fi
+codesign --force --sign "$SIGN_ID" \
     --entitlements "$ROOT/Resources/WisprVideo.entitlements" \
     "$APP"
 
