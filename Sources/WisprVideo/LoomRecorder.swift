@@ -23,7 +23,7 @@ final class LoomRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
 
     // Screen
     private var stream: SCStream?
-    private var filter: SCContentFilter?
+    private var display: SCDisplay?
     private var streamConfig: SCStreamConfiguration?
 
     // Compositing
@@ -109,6 +109,9 @@ final class LoomRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
 
     // MARK: - Screen setup (also verifies Screen Recording permission)
 
+    /// Verifies Screen Recording permission and prepares the capture config + writer.
+    /// The content filter is built later, in `beginCapture`, once our control
+    /// window exists so it can be excluded from the recording.
     func prepareScreen() async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
@@ -116,11 +119,6 @@ final class LoomRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
             throw NSError(domain: "WisprVideo", code: 10,
                           userInfo: [NSLocalizedDescriptionKey: "No display available to capture."])
         }
-
-        // Exclude our own windows (control panel) from the recording.
-        let ourApp = content.applications.first { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
-        let excluded = ourApp.map { [$0] } ?? []
-        let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
 
         let config = SCStreamConfiguration()
         config.width = display.width
@@ -130,7 +128,7 @@ final class LoomRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
         config.showsCursor = true
         config.queueDepth = 6
 
-        self.filter = filter
+        self.display = display
         self.streamConfig = config
         self.outputSize = CGSize(width: config.width, height: config.height)
 
@@ -181,11 +179,20 @@ final class LoomRecorder: NSObject, SCStreamOutput, SCStreamDelegate,
 
     // MARK: - Capture control
 
-    func beginCapture() async throws {
-        guard let filter, let streamConfig else {
+    /// Starts screen capture, excluding our own control window(s) so they don't
+    /// appear in the recording. Pass the control panel's `windowNumber`(s).
+    func beginCapture(excludingWindowNumbers windowNumbers: [Int]) async throws {
+        guard let display, let streamConfig else {
             throw NSError(domain: "WisprVideo", code: 11,
                           userInfo: [NSLocalizedDescriptionKey: "Screen capture not prepared."])
         }
+
+        // Re-snapshot now that the control window is on screen, and exclude it by ID.
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let liveDisplay = content.displays.first { $0.displayID == display.displayID } ?? display
+        let ourWindows = content.windows.filter { windowNumbers.contains(Int($0.windowID)) }
+        let filter = SCContentFilter(display: liveDisplay, excludingWindows: ourWindows)
+
         let stream = SCStream(filter: filter, configuration: streamConfig, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         self.stream = stream

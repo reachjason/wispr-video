@@ -30,8 +30,9 @@ final class RecorderPanel: NSPanel {
     private let countdownLabel = NSTextField(labelWithString: "")
     private var countdownTimer: Timer?
 
-    init(previewLayer: CALayer) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 340, height: 500),
+    init(previewLayer: CALayer, compact: Bool = false) {
+        let size = compact ? NSSize(width: 260, height: 320) : NSSize(width: 340, height: 500)
+        super.init(contentRect: NSRect(origin: .zero, size: size),
                    styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
                    backing: .buffered, defer: false)
 

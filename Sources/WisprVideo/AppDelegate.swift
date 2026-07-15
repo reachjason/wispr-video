@@ -180,13 +180,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.state = .countingDown
                 self.updateStatusIcon()
                 self.loom.startPreview()
-                self.showRecorderPanel(previewLayer: self.loom.previewLayer)
+                self.showRecorderPanel(previewLayer: self.loom.previewLayer, compact: true)
+                let windowNumbers = self.recorderPanel.map { [$0.windowNumber] } ?? []
                 self.recorderPanel?.runCountdown(from: 3) { [weak self] in
                     guard let self, self.state == .countingDown else { return }
                     self.state = .recording
                     self.updateStatusIcon()
                     Task { @MainActor in
-                        do { try await self.loom.beginCapture() }
+                        do { try await self.loom.beginCapture(excludingWindowNumbers: windowNumbers) }
                         catch {
                             self.showAlert(title: "Couldn't start screen recording",
                                            message: error.localizedDescription)
@@ -219,10 +220,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Recorder panel
 
-    private func showRecorderPanel(previewLayer: CALayer) {
-        let panel = RecorderPanel(previewLayer: previewLayer)
+    private func showRecorderPanel(previewLayer: CALayer, compact: Bool = false) {
+        let panel = RecorderPanel(previewLayer: previewLayer, compact: compact)
         panel.onStop = { [weak self] in self?.stop() }
-        panel.center()
+        if compact, let screen = NSScreen.main {
+            // Tuck the Loom control into the bottom-right, out of the demo area.
+            let vf = screen.visibleFrame
+            let margin: CGFloat = 24
+            let origin = NSPoint(x: vf.maxX - panel.frame.width - margin,
+                                 y: vf.minY + margin)
+            panel.setFrameOrigin(origin)
+        } else {
+            panel.center()
+        }
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         recorderPanel = panel
