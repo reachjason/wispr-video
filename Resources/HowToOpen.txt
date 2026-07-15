@@ -1,0 +1,30 @@
+Wispr Video — How to open
+==========================
+
+Because this app is shared directly (not through the Mac App Store), macOS
+will warn you the first time you open it. This is normal for indie apps.
+
+To install and open:
+
+  1. Drag "Wispr Video" onto the Applications folder (in this window).
+  2. Open your Applications folder, then RIGHT-CLICK (or Control-click)
+     "Wispr Video" and choose "Open".
+  3. Click "Open" in the dialog. You only have to do this once.
+
+If macOS still refuses (newer versions of macOS):
+
+  1. Double-click the app once and dismiss the warning.
+  2. Open System Settings > Privacy & Security, scroll down, and click
+     "Open Anyway" next to Wispr Video. Then open the app again.
+
+Using it:
+
+  - The app lives in your MENU BAR (a small camera icon at the top-right
+    of the screen) — there is no Dock icon.
+  - Press Option-Command-V (⌥⌘V) to start/stop recording, or click the
+    menu-bar icon.
+  - The first time, macOS asks for camera and microphone access — click Allow.
+  - After recording, pick which social formats to export. Files are saved to
+    your Movies folder, under WisprVideo.
+
+Everything runs locally on your Mac. Nothing is ever uploaded.
