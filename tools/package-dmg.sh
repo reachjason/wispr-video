@@ -17,7 +17,7 @@ echo "▶ Compiling universal binary (arm64 + x86_64)…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-FRAMEWORKS=(-framework AppKit -framework AVFoundation -framework SwiftUI -framework Carbon)
+FRAMEWORKS=(-framework AppKit -framework AVFoundation -framework SwiftUI -framework Carbon -framework ScreenCaptureKit -framework CoreImage)
 swiftc -O "${FRAMEWORKS[@]}" -target arm64-apple-macos13.0  -o "$BUILD/wv-arm64"  "$SRC"/*.swift
 swiftc -O "${FRAMEWORKS[@]}" -target x86_64-apple-macos13.0 -o "$BUILD/wv-x86_64" "$SRC"/*.swift
 lipo -create "$BUILD/wv-arm64" "$BUILD/wv-x86_64" -output "$APP/Contents/MacOS/WisprVideo"

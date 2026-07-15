@@ -19,6 +19,7 @@ final class ExportModel: ObservableObject {
     let specs: [ExportSpec]
     let folder: URL
     let rawURL: URL
+    let note: String?
 
     @Published var phase: Phase = .choosing
     @Published var selected: Set<String>   // keyed by spec.fileName
@@ -27,11 +28,12 @@ final class ExportModel: ObservableObject {
     /// Set by the app; invoked with the chosen specs when the user taps Export.
     var onExport: (([ExportSpec]) -> Void)?
 
-    init(specs: [ExportSpec], folder: URL, rawURL: URL, defaultSelected: Set<String>) {
+    init(specs: [ExportSpec], folder: URL, rawURL: URL, defaultSelected: Set<String>, note: String? = nil) {
         self.specs = specs
         self.folder = folder
         self.rawURL = rawURL
         self.selected = defaultSelected
+        self.note = note
     }
 }
 
@@ -61,6 +63,12 @@ private struct ChooseFormatsView: View {
                 Text("Only the formats you pick are saved. The raw original is always kept.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                if let note = model.note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 2)
+                }
             }
             .padding(16)
 

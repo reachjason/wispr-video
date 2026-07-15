@@ -5,26 +5,36 @@ import Carbon.HIToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum State { case idle, countingDown, recording }
+    private enum Mode { case webcam, loom }
 
     private var statusItem: NSStatusItem!
-    private var toggleMenuItem: NSMenuItem!
+    private var webcamItem: NSMenuItem!
+    private var loomItem: NSMenuItem!
+    private var bubbleMenu: NSMenu!
 
-    private let recorder = CameraRecorder()
-    private let hotKey = HotKey()
+    private let webcam = CameraRecorder()
+    private let loom = LoomRecorder()
 
     private var recorderPanel: RecorderPanel?
     private var exportWindow: NSWindow?
 
     private var state: State = .idle
+    private var mode: Mode = .webcam
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
-        recorder.onFinish = { [weak self] url in self?.handleFinished(url) }
-        hotKey.onKeyDown = { [weak self] in self?.toggle() }
-        hotKey.register(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey))
+        webcam.onFinish = { [weak self] url in self?.handleFinished(url) }
+        loom.onFinish = { [weak self] url in self?.handleFinished(url) }
+
+        HotKeyCenter.shared.register(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | optionKey)) {
+            [weak self] in self?.toggle(.webcam)
+        }
+        HotKeyCenter.shared.register(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey | optionKey)) {
+            [weak self] in self?.toggle(.loom)
+        }
     }
 
     // MARK: - Menu bar
@@ -33,17 +43,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         let menu = NSMenu()
-        toggleMenuItem = NSMenuItem(title: "Start Recording  (⌥⌘V)",
-                                    action: #selector(menuToggle),
-                                    keyEquivalent: "")
-        toggleMenuItem.target = self
-        menu.addItem(toggleMenuItem)
+        menu.autoenablesItems = false
+
+        webcamItem = NSMenuItem(title: "Record Webcam  (⌥⌘V)", action: #selector(webcamToggle), keyEquivalent: "")
+        webcamItem.target = self
+        menu.addItem(webcamItem)
+
+        loomItem = NSMenuItem(title: "Record Loom — Screen + Camera  (⌥⌘L)", action: #selector(loomToggle), keyEquivalent: "")
+        loomItem.target = self
+        menu.addItem(loomItem)
+
+        menu.addItem(.separator())
+
+        bubbleMenu = NSMenu()
+        for corner in BubbleCorner.allCases {
+            let item = NSMenuItem(title: corner.title, action: #selector(selectBubbleCorner(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = corner.rawValue
+            item.state = (corner == Settings.bubbleCorner) ? .on : .off
+            bubbleMenu.addItem(item)
+        }
+        let bubbleParent = NSMenuItem(title: "Loom Camera Bubble", action: nil, keyEquivalent: "")
+        bubbleParent.submenu = bubbleMenu
+        menu.addItem(bubbleParent)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Wispr Video", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
-        statusItem.menu = menu
 
+        statusItem.menu = menu
         updateStatusIcon()
     }
 
@@ -54,48 +83,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         image?.isTemplate = !active
         statusItem.button?.image = image
         statusItem.button?.contentTintColor = active ? .systemRed : nil
-        toggleMenuItem.title = active ? "Stop Recording  (⌥⌘V)" : "Start Recording  (⌥⌘V)"
+
+        webcamItem.title = (active && mode == .webcam) ? "Stop Recording  (⌥⌘V)" : "Record Webcam  (⌥⌘V)"
+        loomItem.title = (active && mode == .loom)
+            ? "Stop Recording  (⌥⌘L)" : "Record Loom — Screen + Camera  (⌥⌘L)"
+        webcamItem.isEnabled = !active || mode == .webcam
+        loomItem.isEnabled = !active || mode == .loom
     }
 
-    @objc private func menuToggle() { toggle() }
+    @objc private func webcamToggle() { toggle(.webcam) }
+    @objc private func loomToggle() { toggle(.loom) }
     @objc private func quit() { NSApp.terminate(nil) }
+
+    @objc private func selectBubbleCorner(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let corner = BubbleCorner(rawValue: raw) else { return }
+        Settings.bubbleCorner = corner
+        for item in bubbleMenu.items {
+            item.state = ((item.representedObject as? String) == raw) ? .on : .off
+        }
+    }
 
     // MARK: - Recording control
 
-    private func toggle() {
-        if state == .idle { start() } else { stop() }
-    }
-
-    private func start() {
-        ensurePermissions { [weak self] granted in
-            guard let self else { return }
-            guard granted else { self.showPermissionAlert(); return }
-            guard self.recorder.configureIfNeeded() else {
-                self.showAlert(title: "No camera found",
-                               message: "Wispr Video couldn't find a camera to record from.")
-                return
-            }
-            self.state = .countingDown
-            self.updateStatusIcon()
-            self.recorder.startPreview()
-            self.showRecorderPanel()
-            self.recorderPanel?.runCountdown(from: 3) { [weak self] in
-                guard let self, self.state == .countingDown else { return }
-                self.state = .recording
-                self.updateStatusIcon()
-                self.recorder.beginRecording()
-                self.recorderPanel?.startTimer()
-            }
+    private func toggle(_ requested: Mode) {
+        switch state {
+        case .idle:
+            mode = requested
+            requested == .webcam ? startWebcam() : startLoom()
+        case .countingDown, .recording:
+            if mode == requested { stop() }   // otherwise busy in the other mode — ignore
         }
     }
 
     private func stop() {
         switch state {
         case .countingDown:
-            // Cancel before any file was written — discard cleanly.
             cancelCapture()
         case .recording:
-            recorder.stop()   // handleFinished() continues the flow
+            (mode == .webcam ? webcam.stop() : loom.stop())   // handleFinished() continues
         case .idle:
             break
         }
@@ -105,21 +131,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state = .idle
         updateStatusIcon()
         closeRecorderPanel()
-        recorder.teardownSession()
+        if mode == .webcam { webcam.teardownSession() } else { loom.cancelPreview() }
     }
 
+    // MARK: - Webcam mode
+
+    private func startWebcam() {
+        ensurePermissions { [weak self] granted in
+            guard let self else { return }
+            guard granted else { self.showPermissionAlert(); return }
+            guard self.webcam.configureIfNeeded() else {
+                self.showAlert(title: "No camera found",
+                               message: "Wispr Video couldn't find a camera to record from.")
+                return
+            }
+            self.state = .countingDown
+            self.updateStatusIcon()
+            self.webcam.startPreview()
+            self.showRecorderPanel(previewLayer: self.webcam.previewLayer)
+            self.recorderPanel?.runCountdown(from: 3) { [weak self] in
+                guard let self, self.state == .countingDown else { return }
+                self.state = .recording
+                self.updateStatusIcon()
+                self.webcam.beginRecording()
+                self.recorderPanel?.startTimer()
+            }
+        }
+    }
+
+    // MARK: - Loom mode
+
+    private func startLoom() {
+        ensurePermissions { [weak self] granted in
+            guard let self else { return }
+            guard granted else { self.showPermissionAlert(); return }
+            guard self.loom.configureCameraAndMic() else {
+                self.showAlert(title: "No camera found",
+                               message: "Wispr Video couldn't find a camera to record from.")
+                return
+            }
+            Task { @MainActor in
+                do {
+                    try await self.loom.prepareScreen()
+                } catch {
+                    self.showScreenPermissionAlert()
+                    return
+                }
+                self.state = .countingDown
+                self.updateStatusIcon()
+                self.loom.startPreview()
+                self.showRecorderPanel(previewLayer: self.loom.previewLayer)
+                self.recorderPanel?.runCountdown(from: 3) { [weak self] in
+                    guard let self, self.state == .countingDown else { return }
+                    self.state = .recording
+                    self.updateStatusIcon()
+                    Task { @MainActor in
+                        do { try await self.loom.beginCapture() }
+                        catch {
+                            self.showAlert(title: "Couldn't start screen recording",
+                                           message: error.localizedDescription)
+                            self.handleFinished(nil)
+                            return
+                        }
+                        self.recorderPanel?.startTimer()
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Finish
+
     private func handleFinished(_ url: URL?) {
+        let finishedMode = mode
         state = .idle
         updateStatusIcon()
         closeRecorderPanel()
-        recorder.teardownSession()
+        if finishedMode == .webcam { webcam.teardownSession() }
 
         guard let url else {
             showAlert(title: "Recording failed",
                       message: "Something went wrong while capturing the video.")
             return
         }
-        presentExportChooser(masterURL: url)
+        presentExportChooser(masterURL: url, screenSource: finishedMode == .loom)
+    }
+
+    // MARK: - Recorder panel
+
+    private func showRecorderPanel(previewLayer: CALayer) {
+        let panel = RecorderPanel(previewLayer: previewLayer)
+        panel.onStop = { [weak self] in self?.stop() }
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        recorderPanel = panel
     }
 
     private func closeRecorderPanel() {
@@ -128,29 +234,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recorderPanel = nil
     }
 
-    // MARK: - Recorder panel
-
-    private func showRecorderPanel() {
-        let panel = RecorderPanel(previewLayer: recorder.previewLayer)
-        panel.onStop = { [weak self] in self?.stop() }
-        panel.center()
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        recorderPanel = panel
-    }
-
     // MARK: - Export
 
-    /// Saves the raw original, then shows the format picker.
-    private func presentExportChooser(masterURL: URL) {
+    private func presentExportChooser(masterURL: URL, screenSource: Bool) {
         let folder = makeOutputFolder()
         let rawURL = folder.appendingPathComponent("raw-original.mov")
         try? FileManager.default.moveItem(at: masterURL, to: rawURL)
 
+        let defaultRatio = screenSource ? "16:9" : "9:16"
+        let defaultSelected = Set(VideoExporter.specs.filter { $0.ratio == defaultRatio }.map(\.fileName))
+        let note = screenSource
+            ? "Tip: screen recordings are landscape — non-16:9 formats will center-crop your screen."
+            : nil
+
         let model = ExportModel(specs: VideoExporter.specs,
                                 folder: folder,
                                 rawURL: rawURL,
-                                defaultSelected: ["vertical-9x16"])
+                                defaultSelected: defaultSelected,
+                                note: note)
         model.onExport = { [weak self] chosen in
             self?.runExport(specs: chosen, source: rawURL, model: model)
         }
@@ -226,14 +327,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Alerts
 
     private func showPermissionAlert() {
+        openSettingsAlert(
+            title: "Camera access needed",
+            message: "Enable camera (and microphone) access for Wispr Video in System Settings › Privacy & Security.",
+            anchor: "Privacy_Camera")
+    }
+
+    private func showScreenPermissionAlert() {
+        openSettingsAlert(
+            title: "Screen Recording permission needed",
+            message: "To record your screen, enable Wispr Video under System Settings › Privacy & Security › Screen Recording, then try again. You may need to quit and reopen the app after enabling it.",
+            anchor: "Privacy_ScreenCapture")
+    }
+
+    private func openSettingsAlert(title: String, message: String, anchor: String) {
         let alert = NSAlert()
-        alert.messageText = "Camera access needed"
-        alert.informativeText = "Enable camera (and microphone) access for Wispr Video in System Settings › Privacy & Security."
+        alert.messageText = title
+        alert.informativeText = message
         alert.addButton(withTitle: "Open Settings")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
             NSWorkspace.shared.open(url)
         }
     }

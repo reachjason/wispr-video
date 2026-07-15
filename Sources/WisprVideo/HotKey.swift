@@ -1,16 +1,34 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Registers a system-wide hotkey using Carbon (no Accessibility permission required).
-final class HotKey {
-    static weak var shared: HotKey?
+/// Registers system-wide hotkeys using Carbon (no Accessibility permission required).
+/// Supports multiple hotkeys via a shared event handler.
+final class HotKeyCenter {
+    static let shared = HotKeyCenter()
 
-    private var hotKeyRef: EventHotKeyRef?
-    private var handlerRef: EventHandlerRef?
-    var onKeyDown: (() -> Void)?
+    private var handlers: [UInt32: () -> Void] = [:]
+    private var refs: [EventHotKeyRef?] = []
+    private var nextID: UInt32 = 1
+    private var installed = false
 
-    func register(keyCode: UInt32, modifiers: UInt32) {
-        HotKey.shared = self
+    private init() {}
+
+    func register(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) {
+        installHandlerIfNeeded()
+
+        let id = nextID
+        nextID += 1
+        handlers[id] = handler
+
+        var ref: EventHotKeyRef?
+        let hotKeyID = EventHotKeyID(signature: OSType(0x57535056 /* 'WSPV' */), id: id)
+        RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        refs.append(ref)
+    }
+
+    private func installHandlerIfNeeded() {
+        guard !installed else { return }
+        installed = true
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -29,20 +47,9 @@ final class HotKey {
                 nil,
                 &hkID
             )
-            if hkID.id == 1 {
-                DispatchQueue.main.async { HotKey.shared?.onKeyDown?() }
-            }
+            let id = hkID.id
+            DispatchQueue.main.async { HotKeyCenter.shared.handlers[id]?() }
             return noErr
-        }, 1, &eventType, nil, &handlerRef)
-
-        let hotKeyID = EventHotKeyID(signature: OSType(0x57535056 /* 'WSPV' */), id: 1)
-        RegisterEventHotKey(
-            keyCode,
-            modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
+        }, 1, &eventType, nil, nil)
     }
 }

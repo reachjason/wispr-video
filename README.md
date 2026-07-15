@@ -6,9 +6,14 @@ standard social-media sizes.
 
 ## Features
 
-- **Menu-bar app** (no dock clutter) with a global hotkey: **⌥⌘V** to start/stop.
-- **Live floating preview** with a recording timer while you shoot.
-- **One recording → four exports**, center-cropped to fill each format:
+- **Menu-bar app** (no dock clutter) with global hotkeys:
+  - **⌥⌘V** — record webcam (talking head).
+  - **⌥⌘L** — record Loom-style: your **screen + a circular webcam bubble + mic**, composited live.
+- **3-second countdown**, live floating preview, and a recording timer.
+- **Configurable webcam-bubble corner** for Loom mode (menu → Loom Camera Bubble).
+- **Pick which formats to export** — only the ones you choose are saved; the raw
+  original is always kept.
+- **Exports** center-cropped to fill each format:
 
   | Format | Resolution | Use |
   |---|---|---|
@@ -36,14 +41,20 @@ launches it. On first launch macOS will ask for camera and microphone access.
 ```
 Sources/WisprVideo/
 ├── main.swift            # entry point (accessory app)
-├── AppDelegate.swift     # menu bar, hotkey, orchestration
-├── HotKey.swift          # Carbon global hotkey
-├── CameraRecorder.swift  # AVCaptureSession recording
+├── AppDelegate.swift     # menu bar, hotkeys, orchestration
+├── HotKey.swift          # Carbon multi-hotkey center
+├── Settings.swift        # persisted settings (bubble corner)
+├── CameraRecorder.swift  # webcam AVCaptureSession recording
+├── LoomRecorder.swift    # screen + camera bubble + mic compositing (ScreenCaptureKit)
 ├── VideoExporter.swift   # center-crop-to-fill to each format
-├── RecorderPanel.swift   # floating preview + timer + stop
-└── ExportView.swift      # SwiftUI results panel
+├── RecorderPanel.swift   # floating preview + countdown + timer + stop
+└── ExportView.swift      # SwiftUI format picker + results panel
 Resources/
 ├── Info.plist            # bundle + camera/mic usage strings
+├── AppIcon.icns          # generated app icon
+├── HowToOpen.txt         # first-launch instructions bundled in the DMG
 └── WisprVideo.entitlements
-build.sh                  # compile → bundle → sign → run
+build.sh                  # compile → bundle → sign → run (dev)
+tools/package-dmg.sh      # universal build → distributable .dmg
+tools/make-icon.sh        # regenerate AppIcon.icns
 ```

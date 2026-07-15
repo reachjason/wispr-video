@@ -20,6 +20,8 @@ swiftc \
     -framework AVFoundation \
     -framework SwiftUI \
     -framework Carbon \
+    -framework ScreenCaptureKit \
+    -framework CoreImage \
     -o "$BIN" \
     "$ROOT"/Sources/WisprVideo/*.swift
 
