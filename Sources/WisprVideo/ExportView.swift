@@ -13,17 +13,114 @@ struct ExportItem: Identifiable {
 }
 
 final class ExportModel: ObservableObject {
-    @Published var items: [ExportItem]
-    @Published var processing = true
-    let folder: URL
+    enum Phase { case choosing, working, done }
 
-    init(items: [ExportItem], folder: URL) {
-        self.items = items
+    let specs: [ExportSpec]
+    let folder: URL
+    let rawURL: URL
+
+    @Published var phase: Phase = .choosing
+    @Published var selected: Set<String>   // keyed by spec.fileName
+    @Published var items: [ExportItem] = []
+
+    /// Set by the app; invoked with the chosen specs when the user taps Export.
+    var onExport: (([ExportSpec]) -> Void)?
+
+    init(specs: [ExportSpec], folder: URL, rawURL: URL, defaultSelected: Set<String>) {
+        self.specs = specs
         self.folder = folder
+        self.rawURL = rawURL
+        self.selected = defaultSelected
     }
 }
 
 struct ExportView: View {
+    @ObservedObject var model: ExportModel
+
+    var body: some View {
+        switch model.phase {
+        case .choosing:
+            ChooseFormatsView(model: model)
+        case .working, .done:
+            ResultsView(model: model)
+        }
+    }
+}
+
+// MARK: - Choose formats
+
+private struct ChooseFormatsView: View {
+    @ObservedObject var model: ExportModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Choose formats to export")
+                    .font(.headline)
+                Text("Only the formats you pick are saved. The raw original is always kept.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(model.specs, id: \.fileName) { spec in
+                        row(for: spec)
+                    }
+                }
+                .padding(16)
+            }
+
+            Divider()
+
+            HStack {
+                Button("Cancel") { NSApp.keyWindow?.close() }
+                Spacer()
+                Button("Export Selected") {
+                    let chosen = model.specs.filter { model.selected.contains($0.fileName) }
+                    model.phase = .working
+                    model.onExport?(chosen)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.selected.isEmpty)
+            }
+            .padding(16)
+        }
+        .frame(width: 460, height: 420)
+    }
+
+    private func row(for spec: ExportSpec) -> some View {
+        let isOn = Binding(
+            get: { model.selected.contains(spec.fileName) },
+            set: { on in
+                if on { model.selected.insert(spec.fileName) }
+                else { model.selected.remove(spec.fileName) }
+            }
+        )
+        return Toggle(isOn: isOn) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(spec.label) · \(spec.ratio)")
+                        .font(.body).bold()
+                    Text("\(spec.width) × \(spec.height)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+        }
+        .toggleStyle(.checkbox)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+// MARK: - Results
+
+private struct ResultsView: View {
     @ObservedObject var model: ExportModel
 
     private let columns = [GridItem(.flexible(), spacing: 16),
@@ -31,8 +128,25 @@ struct ExportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.phase == .done ? "Your clips are ready" : "Rendering…")
+                        .font(.headline)
+                    Text(model.phase == .done
+                         ? "\(model.items.count) format\(model.items.count == 1 ? "" : "s") exported"
+                         : "Rendering selected formats…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if model.phase == .working {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(16)
+
             Divider()
+
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(model.items) { item in
@@ -41,34 +155,28 @@ struct ExportView: View {
                 }
                 .padding(16)
             }
+
             Divider()
-            footer
+
+            HStack {
+                Button {
+                    NSWorkspace.shared.open(model.folder)
+                } label: {
+                    Label("Open Folder", systemImage: "folder")
+                }
+                Spacer()
+                Button("Done") { NSApp.keyWindow?.close() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
         }
         .frame(width: 560, height: 620)
-    }
-
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Your clips are ready")
-                    .font(.headline)
-                Text(model.processing ? "Rendering social formats…" : "4 formats exported")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            if model.processing {
-                ProgressView().controlSize(.small)
-            }
-        }
-        .padding(16)
     }
 
     private func card(for item: ExportItem) -> some View {
         VStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.black.opacity(0.85))
+                RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.85))
                 if let thumb = item.thumbnail {
                     Image(nsImage: thumb)
                         .resizable()
@@ -109,21 +217,5 @@ struct ExportView: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
-    }
-
-    private var footer: some View {
-        HStack {
-            Button {
-                NSWorkspace.shared.open(model.folder)
-            } label: {
-                Label("Open Folder", systemImage: "folder")
-            }
-            Spacer()
-            Button("Done") {
-                NSApp.keyWindow?.close()
-            }
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding(16)
     }
 }

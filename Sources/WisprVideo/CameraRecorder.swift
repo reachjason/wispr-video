@@ -47,23 +47,33 @@ final class CameraRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
 
         session.commitConfiguration()
+
+        // Mirror the live preview only (selfie feel). The recorded file stays
+        // un-mirrored so text in frame reads correctly — the standard behavior.
+        if let conn = previewLayer.connection, conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = true
+        }
+
         configured = true
         return true
     }
 
     var isRecording: Bool { movieOutput.isRecording }
 
-    /// Starts the session (for preview) then begins recording once it's live.
-    func begin() {
+    /// Starts the capture session so the preview goes live (no file is written yet).
+    func startPreview() {
         DispatchQueue.global(qos: .userInitiated).async {
             if !self.session.isRunning { self.session.startRunning() }
-            DispatchQueue.main.async {
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("wispr-\(UUID().uuidString).mov")
-                self.currentURL = url
-                self.movieOutput.startRecording(to: url, recordingDelegate: self)
-            }
         }
+    }
+
+    /// Begins writing the master recording. Call after `startPreview()`.
+    func beginRecording() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wispr-\(UUID().uuidString).mov")
+        currentURL = url
+        movieOutput.startRecording(to: url, recordingDelegate: self)
     }
 
     func stop() {

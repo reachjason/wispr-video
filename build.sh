@@ -24,6 +24,7 @@ swiftc \
     "$ROOT"/Sources/WisprVideo/*.swift
 
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 echo "▶ Signing (ad-hoc)…"
 codesign --force --sign - \
@@ -34,5 +35,7 @@ echo "✅ Built: $APP"
 
 if [[ "${1:-}" == "run" ]]; then
     echo "▶ Launching…"
+    killall WisprVideo 2>/dev/null || true
+    sleep 0.3
     open "$APP"
 fi

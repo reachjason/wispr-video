@@ -26,6 +26,10 @@ final class RecorderPanel: NSPanel {
     private var startDate: Date?
     private var timer: Timer?
 
+    private let countdownBackdrop = NSView()
+    private let countdownLabel = NSTextField(labelWithString: "")
+    private var countdownTimer: Timer?
+
     init(previewLayer: CALayer) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 340, height: 500),
                    styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
@@ -80,11 +84,32 @@ final class RecorderPanel: NSPanel {
         stack.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(stack)
 
+        // Countdown overlay (hidden until a countdown runs).
+        countdownBackdrop.wantsLayer = true
+        countdownBackdrop.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.4).cgColor
+        countdownBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        countdownBackdrop.isHidden = true
+        container.addSubview(countdownBackdrop)
+
+        countdownLabel.font = .systemFont(ofSize: 150, weight: .bold)
+        countdownLabel.textColor = .white
+        countdownLabel.alignment = .center
+        countdownLabel.translatesAutoresizingMaskIntoConstraints = false
+        countdownBackdrop.addSubview(countdownLabel)
+
         NSLayoutConstraint.activate([
             preview.topAnchor.constraint(equalTo: container.topAnchor),
             preview.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             preview.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            countdownBackdrop.topAnchor.constraint(equalTo: container.topAnchor),
+            countdownBackdrop.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            countdownBackdrop.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            countdownBackdrop.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            countdownLabel.centerXAnchor.constraint(equalTo: countdownBackdrop.centerXAnchor),
+            countdownLabel.centerYAnchor.constraint(equalTo: countdownBackdrop.centerYAnchor),
 
             bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -98,6 +123,26 @@ final class RecorderPanel: NSPanel {
         ])
 
         contentView = container
+    }
+
+    /// Shows a big N…1 overlay, then hides it and calls `completion`.
+    func runCountdown(from seconds: Int, completion: @escaping () -> Void) {
+        countdownBackdrop.isHidden = false
+        var remaining = seconds
+        countdownLabel.stringValue = "\(remaining)"
+
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            remaining -= 1
+            if remaining <= 0 {
+                t.invalidate()
+                self.countdownTimer = nil
+                self.countdownBackdrop.isHidden = true
+                completion()
+            } else {
+                self.countdownLabel.stringValue = "\(remaining)"
+            }
+        }
     }
 
     func startTimer() {
@@ -116,5 +161,7 @@ final class RecorderPanel: NSPanel {
     func teardown() {
         timer?.invalidate()
         timer = nil
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 }

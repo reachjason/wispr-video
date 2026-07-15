@@ -4,6 +4,8 @@ import SwiftUI
 import Carbon.HIToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum State { case idle, countingDown, recording }
+
     private var statusItem: NSStatusItem!
     private var toggleMenuItem: NSMenuItem!
 
@@ -13,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recorderPanel: RecorderPanel?
     private var exportWindow: NSWindow?
 
-    private var recording = false
+    private var state: State = .idle
 
     // MARK: - Lifecycle
 
@@ -46,12 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let name = recording ? "video.fill" : "video"
+        let active = state != .idle
+        let name = active ? "video.fill" : "video"
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "Wispr Video")
-        image?.isTemplate = !recording
+        image?.isTemplate = !active
         statusItem.button?.image = image
-        statusItem.button?.contentTintColor = recording ? .systemRed : nil
-        toggleMenuItem.title = recording ? "Stop Recording  (⌥⌘V)" : "Start Recording  (⌥⌘V)"
+        statusItem.button?.contentTintColor = active ? .systemRed : nil
+        toggleMenuItem.title = active ? "Stop Recording  (⌥⌘V)" : "Start Recording  (⌥⌘V)"
     }
 
     @objc private func menuToggle() { toggle() }
@@ -60,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Recording control
 
     private func toggle() {
-        if recording { stop() } else { start() }
+        if state == .idle { start() } else { stop() }
     }
 
     private func start() {
@@ -72,25 +75,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                message: "Wispr Video couldn't find a camera to record from.")
                 return
             }
-            self.recording = true
+            self.state = .countingDown
             self.updateStatusIcon()
+            self.recorder.startPreview()
             self.showRecorderPanel()
-            self.recorder.begin()
+            self.recorderPanel?.runCountdown(from: 3) { [weak self] in
+                guard let self, self.state == .countingDown else { return }
+                self.state = .recording
+                self.updateStatusIcon()
+                self.recorder.beginRecording()
+                self.recorderPanel?.startTimer()
+            }
         }
     }
 
     private func stop() {
-        guard recording else { return }
-        recorder.stop()   // handleFinished() continues the flow
+        switch state {
+        case .countingDown:
+            // Cancel before any file was written — discard cleanly.
+            cancelCapture()
+        case .recording:
+            recorder.stop()   // handleFinished() continues the flow
+        case .idle:
+            break
+        }
+    }
+
+    private func cancelCapture() {
+        state = .idle
+        updateStatusIcon()
+        closeRecorderPanel()
+        recorder.teardownSession()
     }
 
     private func handleFinished(_ url: URL?) {
-        recording = false
+        state = .idle
         updateStatusIcon()
-
-        recorderPanel?.teardown()
-        recorderPanel?.close()
-        recorderPanel = nil
+        closeRecorderPanel()
         recorder.teardownSession()
 
         guard let url else {
@@ -98,7 +119,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                       message: "Something went wrong while capturing the video.")
             return
         }
-        startExport(source: url)
+        presentExportChooser(masterURL: url)
+    }
+
+    private func closeRecorderPanel() {
+        recorderPanel?.teardown()
+        recorderPanel?.close()
+        recorderPanel = nil
     }
 
     // MARK: - Recorder panel
@@ -108,36 +135,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onStop = { [weak self] in self?.stop() }
         panel.center()
         panel.makeKeyAndOrderFront(nil)
-        panel.startTimer()
         NSApp.activate(ignoringOtherApps: true)
         recorderPanel = panel
     }
 
     // MARK: - Export
 
-    private func startExport(source: URL) {
+    /// Saves the raw original, then shows the format picker.
+    private func presentExportChooser(masterURL: URL) {
         let folder = makeOutputFolder()
-        let items = VideoExporter.specs.map {
+        let rawURL = folder.appendingPathComponent("raw-original.mov")
+        try? FileManager.default.moveItem(at: masterURL, to: rawURL)
+
+        let model = ExportModel(specs: VideoExporter.specs,
+                                folder: folder,
+                                rawURL: rawURL,
+                                defaultSelected: ["vertical-9x16"])
+        model.onExport = { [weak self] chosen in
+            self?.runExport(specs: chosen, source: rawURL, model: model)
+        }
+        showExportWindow(model: model)
+    }
+
+    private func runExport(specs: [ExportSpec], source: URL, model: ExportModel) {
+        model.items = specs.map {
             ExportItem(label: $0.label, ratio: $0.ratio,
                        dimensions: "\($0.width) × \($0.height)")
         }
-        let model = ExportModel(items: items, folder: folder)
-        showExportWindow(model: model)
 
         Task { @MainActor in
-            for (index, spec) in VideoExporter.specs.enumerated() {
+            for (index, spec) in specs.enumerated() {
                 do {
-                    let out = try await VideoExporter.export(source: source, spec: spec, outputDir: folder)
-                    let thumb = VideoExporter.thumbnail(for: out)
+                    let out = try await VideoExporter.export(source: source, spec: spec, outputDir: model.folder)
                     model.items[index].url = out
-                    model.items[index].thumbnail = thumb
+                    model.items[index].thumbnail = VideoExporter.thumbnail(for: out)
                     model.items[index].done = true
                 } catch {
                     model.items[index].failed = true
                 }
             }
-            model.processing = false
-            try? FileManager.default.removeItem(at: source)
+            model.phase = .done
         }
     }
 
@@ -170,7 +207,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func ensurePermissions(completion: @escaping (Bool) -> Void) {
         requestAccess(for: .video) { videoOK in
             self.requestAccess(for: .audio) { _ in
-                // Audio is nice-to-have; gate only on camera.
                 DispatchQueue.main.async { completion(videoOK) }
             }
         }
